@@ -1,0 +1,81 @@
+<?php
+  define(DIR,'../');
+  require_once (DIR.'init.php');
+
+  if ($user['tracker_access'])
+  {
+    checkData($_POST['media'],INT);
+    $sql = "
+	    SELECT tv.videoid, ti.imageid, ti.imagename
+	      FROM `".TABLE_PREFIX."video` as tv
+		LEFT JOIN `".TABLE_PREFIX."images` as ti ON (ti.videoid = tv.videoid)
+	      where tv.videoid = ".$_POST['media']."
+	      LIMIT 0,1
+	    ";
+    $media = $db->query_first($sql);
+    if (($_POST['media']>0)&&(isset($media['videoid'])))
+    {
+      // удаляем постепенно
+      // тут будет ище поиск и удаление скриншотов
+      // удаление раздач
+      $sql = "
+	      SELECT contentid, info_hash FROM `".TABLE_PREFIX."content`
+		WHERE videoid = ".$media['videoid']."
+	      ";
+      $query = $db->query($sql);
+      while ($row = $db->fetch_assoc($query))
+      {
+	// сначала удаляем физически торрент
+	if (is_file(DIR.$config['torrent_folder'].$row['contentid'].'.torrent'))
+	{
+	  unlink(DIR.$config['torrent_folder'].$row['contentid'].'.torrent');
+	}
+	// помечаем в БД у трекера что торрент удален
+	$sql = "update xbt_files set flags = 1 where info_hash = '".$row['info_hash']."'";
+	$db->query($sql);
+
+	// удаляем все скриншоты этого торрента
+	// удаление скриншотов
+	$sql = "select * from `".TABLE_PREFIX."images` where contentid = '".$row['contentid']."'";
+	$query_i = $db->query($sql);
+	while ($images = $db->fetch_assoc($query_i))
+	{
+	  $imagefile = DIR.$config['image_screenshot'].$images['imageid'].strrchr($images['imagename'],'.');
+	  $imagefile_mini = DIR.$config['image_screenshot'].$images['imageid'].'-mini'.strrchr($images['imagename'],'.');
+	  if (is_file($imagefile))
+	  {
+	    unlink($imagefile);
+	    unlink($imagefile_mini);
+	  }
+	}
+	$sql = "DELETE from `".TABLE_PREFIX."images` where contentid = '".$row['contentid']."'";
+	$db->query($sql);
+      }
+      // теперь удаляем в базе данных все торренты
+      $sql = "
+	      DELETE FROM `".TABLE_PREFIX."content`
+		WHERE videoid = ".$media['videoid']."
+	      ";
+      $db->query($sql);
+      // удаляем тизер, если он есть
+      if (is_file(DIR.$config['image_teaser'].$media['imageid'].strrchr($media['imagename'],'.')))
+      {
+	unlink(DIR.$config['image_teaser'].$media['imageid'].strrchr($media['imagename'],'.'));
+	unlink(DIR.$config['image_teaser'].$media['imageid'].'-full'.strrchr($media['imagename'],'.'));
+	unlink(DIR.$config['image_teaser'].$media['imageid'].'-mini'.strrchr($media['imagename'],'.'));
+      }
+      // удаляем из БД тизер
+      $sql = "
+	      DELETE FROM `".TABLE_PREFIX."images`
+		WHERE videoid = ".$media['videoid']."
+	      ";
+      $db->query($sql);
+      // последний аккорд - удаление записи а самом фильме-сериале
+      $sql = "
+	      DELETE FROM `".TABLE_PREFIX."video`
+		WHERE videoid = ".$media['videoid']."
+	      ";
+      $db->query($sql);
+    }
+  }
+?>
